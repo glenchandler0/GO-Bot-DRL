@@ -5,6 +5,55 @@ import random, copy
 
 
 class UserSimulator:
+    """ Functions added by Glen for testing """
+    goal_dict = {}
+    banned_keys = []
+
+    # Creates dictionary to easily access possible value space
+    def build_goal_dict(self, full_list):
+        self.goal_dict = {} #Reset goal_dict
+        for goal in full_list: #For all example goals in list
+            for key in goal['inform_slots']: #In given goal's inform slots, put into dictionary
+                if(key not in self.goal_dict):
+                    self.goal_dict[key] = []
+                if(goal['inform_slots'][key] not in self.goal_dict[key]):
+                    self.goal_dict[key].append(goal['inform_slots'][key])
+
+    def event_rand_slot_change(self, probability, key='no_key'):
+        # TODO: Somewhere in here we want to randomly change slot value permanently as an almost random mutation,
+        # not in response to anything
+        assert probability >= 0 and probability <= 1
+
+        if(random.randint(0,int(1/probability)) == 0): #Upper value can be how susceptible to change a user is
+            # print("Modified!")
+            self.rand_change_slot(key)
+
+    # Will change a random slot in given goal with a random value for that slot
+    def rand_change_slot(self, key='no_key'):
+        if(key == 'no_key'):
+            slot_list = list(self.goal['inform_slots']) #TODO: Possibly modify to only use slots from history?
+            key = slot_list[random.randint(0,len(slot_list)-1)]
+
+            if(key in self.banned_keys):
+                return self.rand_change_slot()
+
+        poss_value_list = list(self.goal_dict[key])
+        random_slot_value = poss_value_list[random.randint(0,len(poss_value_list)-1)]
+
+
+        #TODO: Debug
+        # print("Key: ", key, " old val: ", self.goal['inform_slots'][key], " new val: ", random_slot_value)
+
+        self.goal['inform_slots'][key] = random_slot_value
+        #TODO: Make sure these are being changed
+        if(key in self.state['history_slots']):
+            self.state['history_slots'][key] = random_slot_value
+        if(key in self.state['rest_slots']):
+            self.state['rest_slots'][key] = random_slot_value
+
+
+    # Change goal key
+
     """Simulates a real user, to train the agent with reinforcement learning."""
 
     def __init__(self, goal_list, constants, database):
@@ -17,7 +66,11 @@ class UserSimulator:
             database (dict): The database in the format dict(long: dict)
         """
 
+        #TODO: Read meta parameters for testing from file here
+
         self.goal_list = goal_list
+        self.build_goal_dict(self.goal_list)
+
         self.max_round = constants['run']['max_round_num']
         self.default_key = usersim_default_key
         # A list of REQUIRED to be in the first action inform keys
@@ -51,6 +104,7 @@ class UserSimulator:
         self.state['rest_slots'].update(self.goal['inform_slots'])
         self.state['rest_slots'].update(self.goal['request_slots'])
         self.state['intent'] = ''
+
         # False for failure, true for success, init. to failure
         self.constraint_check = FAIL
 
@@ -76,7 +130,7 @@ class UserSimulator:
                     self.state['inform_slots'][inform_key] = self.goal['inform_slots'][inform_key]
                     self.state['rest_slots'].pop(inform_key)
                     self.state['history_slots'][inform_key] = self.goal['inform_slots'][inform_key]
-            # If nothing was added then pick a random one to add
+            # If nothing was added then pick a random one to addf
             if not self.state['inform_slots']:
                 key, value = random.choice(list(self.goal['inform_slots'].items()))
                 self.state['inform_slots'][key] = value
@@ -210,18 +264,18 @@ class UserSimulator:
         # informed, then inform it
         elif agent_request_key in self.goal['request_slots'] and agent_request_key in self.state['history_slots']:
             self.state['intent'] = 'inform'
-            self.state['inform_slots'][agent_request_key] = self.state['history_slots'][agent_request_key]
+            self.state['inform_slots'][agent_request_key] = self.state['history_slots'][agent_request_key] #What was said last time
             self.state['request_slots'].clear()
             assert agent_request_key not in self.state['rest_slots']
         # Third Case: if the agent requests for something in the user sims goal request slots and it HASN'T been
-        # informed, then request it with a random inform
+        # informed, then request it with a random inform -- "I don't know what to inform, let me ask you this slot with my own inform from rest_slots"
         elif agent_request_key in self.goal['request_slots'] and agent_request_key in self.state['rest_slots']:
             self.state['request_slots'].clear()
             self.state['intent'] = 'request'
             self.state['request_slots'][agent_request_key] = 'UNK'
             rest_informs = {}
             for key, value in list(self.state['rest_slots'].items()):
-                if value != 'UNK':
+                if value != 'UNK': #Must be inform slot
                     rest_informs[key] = value
             if rest_informs:
                 key_choice, value_choice = random.choice(list(rest_informs.items()))
@@ -237,6 +291,9 @@ class UserSimulator:
             self.state['request_slots'].clear()
             self.state['history_slots'][agent_request_key] = 'anything'
 
+    # Agent tells you something so that:
+    #   -you answer back with it when it asks later
+    #       -don't request it yourself later
     def _response_to_inform(self, agent_action):
         """
         Augments the state in response to the agent action having an intent of inform.
@@ -330,10 +387,19 @@ class UserSimulator:
                 self.constraint_check = FAIL
                 break
 
+        #TODO: Added debug
+        # if self.constraint_check == FAIL and agent_informs[self.default_key] != 'no match available':
+        #     print("-----------------------------------\nJUST REJECTED:")
+        #     print(agent_action)
+        #     print("-----")
+        #     print(self.goal)
+
+        # Ensure that match found is reflecting possible changes here - to not fail an asser
         if self.constraint_check == FAIL:
             self.state['intent'] = 'reject'
             self.state['request_slots'].clear()
 
+    # Agent sent a done message, we need to make sure the match actually satisfies our goal
     def _response_to_done(self):
         """
         Augments the state in response to the agent action having an intent of done.
@@ -353,6 +419,9 @@ class UserSimulator:
         if self.state['rest_slots']:
             return FAIL
 
+        #TODO: This is a check that the match found matches with my goal, breaks when goal has conflict with match suggested
+        # maybe the suggested match should be formally rejected before we get to this point? --this should probably stay
+
         # TEMP: ----
         assert self.state['history_slots'][self.default_key] != 'no match available'
 
@@ -362,7 +431,7 @@ class UserSimulator:
             assert value != None
             if key in self.no_query:
                 continue
-            if value != match.get(key, None):
+            if value != match.get(key, None): #todo: what is this?
                 assert True is False, 'match: {}\ngoal: {}'.format(match, self.goal)
                 break
         # ----------

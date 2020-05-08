@@ -142,6 +142,9 @@ def train_run():
             # Flush
             if success_rate >= success_rate_best and success_rate >= SUCCESS_RATE_THRESHOLD:
                 dqn_agent.empty_memory()
+
+            if(episode % 250 == 0):
+                print('Status: {} : Success rate: {} Avg Reward: {}' .format(episode, success_rate, avg_reward))
             # Update current best success rate
             if success_rate > success_rate_best:
                 print('Episode: {} NEW BEST SUCCESS RATE: {} Avg Reward: {}' .format(episode, success_rate, avg_reward))
